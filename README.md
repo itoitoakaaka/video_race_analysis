@@ -1,2 +1,2 @@
 # video_race_analysis
-This code visualizes stroke length, stroke rate, and swimming speed fluctuations from footage taken by a fixed camera.
+This code visualizes Stroke Length, Stroke Rate, and Swimming Velocity Variability taken by a fixed camera.
