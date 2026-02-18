@@ -1,72 +1,85 @@
 import cv2
+import sys
 import numpy as np
+import matplotlib.pyplot as plt
+from scipy.signal import find_peaks
 
 # === グローバル変数 ===
 click_points = []
 
+
 def mouse_callback(event, x, y, flags, param):
+    """マウスクリックコールバック"""
     if event == cv2.EVENT_LBUTTONDOWN:
         click_points.append((x, y))
         print(f"Point {len(click_points)}: ({x}, {y})")
 
-# === 映像読み込み ===
-cap = cv2.VideoCapture("your_video.mp4")
-ret, frame = cap.read()
 
-if not ret:
-    raise Exception("映像が読み込めません")
-
-# === キャリブレーション ===
-cv2.imshow("Click 4 corners of the pool", frame)
-cv2.setMouseCallback("Click 4 corners of the pool", mouse_callback)
-
-print("⚠️ プールの4隅をクリックしてください")
-cv2.waitKey(0)
-cv2.destroyAllWindows()
-
-# === px/m計算（例: 横方向の距離から）===
 def calc_scale(points):
+    """px/m計算（横方向の距離から）"""
     p1, p2 = points[0], points[1]  # 例えば左上・右上
     pixel_dist = np.linalg.norm(np.array(p1) - np.array(p2))
     real_length_m = 25.0  # 例：25mプール
     return real_length_m / pixel_dist  # m/px
 
-scale_m_per_px = calc_scale(click_points)
-print(f"Scale: {scale_m_per_px:.5f} m/px")
 
-import cv2
-import mediapipe as mp
-
-mp_pose = mp.solutions.pose
-pose = mp_pose.Pose()
-cap = cv2.VideoCapture("your_video.mp4")
-
-hand_positions = []
-while cap.isOpened():
+def calibrate_video(video_path):
+    """映像からキャリブレーションを行う"""
+    cap = cv2.VideoCapture(video_path)
     ret, frame = cap.read()
+    cap.release()
+
     if not ret:
-        break
-    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    results = pose.process(frame_rgb)
+        raise Exception("映像が読み込めません")
 
-    if results.pose_landmarks:
-        # 右手首の座標 (landmark[16])
-        wrist = results.pose_landmarks.landmark[16]
-        hand_positions.append((wrist.x, wrist.y))  # 0-1の正規化座標
+    # キャリブレーション
+    cv2.imshow("Click 4 corners of the pool", frame)
+    cv2.setMouseCallback("Click 4 corners of the pool", mouse_callback)
 
-cap.release()
-pose.close()
+    print("⚠️ プールの4隅をクリックしてください")
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
 
-import numpy as np
-import matplotlib.pyplot as plt
-from scipy.signal import find_peaks
+    return calc_scale(click_points)
+
+
+def track_pose(video_path):
+    """MediaPipeで手部の位置を追跡する"""
+    try:
+        import mediapipe as mp
+    except ImportError:
+        print("⚠️ mediapipeがインストールされていません: pip install mediapipe")
+        sys.exit(1)
+
+    mp_pose = mp.solutions.pose
+    pose = mp_pose.Pose()
+    cap = cv2.VideoCapture(video_path)
+
+    hand_positions = []
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret:
+            break
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        results = pose.process(frame_rgb)
+
+        if results.pose_landmarks:
+            # 右手首の座標 (landmark[16])
+            wrist = results.pose_landmarks.landmark[16]
+            hand_positions.append((wrist.x, wrist.y))  # 0-1の正規化座標
+
+    cap.release()
+    pose.close()
+    return hand_positions
+
 
 def analyze_stroke(timestamps, hand_x, hand_y, scale_m_per_px=1.0):
+    """ストローク解析"""
     # 1. 手部Y位置の極小値を入水として検出（谷を検出）
     inverted_y = -np.array(hand_y)
     stroke_peaks, _ = find_peaks(inverted_y, distance=10)  # 10以上のフレーム間隔
     stroke_times = np.array(timestamps)[stroke_peaks]
-    
+
     if len(stroke_times) < 2:
         raise ValueError("検出されたストロークが2回未満です")
 
@@ -92,18 +105,38 @@ def analyze_stroke(timestamps, hand_x, hand_y, scale_m_per_px=1.0):
         "avg_velocity_mps": avg_velocity,
         "stroke_indices": stroke_peaks,
     }
+
+
 def plot_strokes(timestamps, hand_y, stroke_indices, analysis_result):
+    """ストローク検出結果をプロットする"""
     plt.figure(figsize=(10, 5))
     plt.plot(timestamps, hand_y, label="Hand Y Position")
-    plt.scatter(np.array(timestamps)[stroke_indices], np.array(hand_y)[stroke_indices], color='red', label="Detected Strokes")
+    plt.scatter(np.array(timestamps)[stroke_indices], np.array(hand_y)[stroke_indices],
+                color='red', label="Detected Strokes")
     plt.title("Hand Y Position and Stroke Detection")
     plt.xlabel("Time (s)")
     plt.ylabel("Y Position")
     plt.grid()
     plt.legend()
     plt.tight_layout()
-    plt.show()
+    plt.savefig("stroke_analysis.png")
+    print("✅ グラフ保存完了: stroke_analysis.png")
 
-# 使用例
-result = analyze_stroke(timestamps, hand_x, hand_y, scale_m_per_px=0.025)
-plot_strokes(timestamps, hand_y, result["stroke_indices"], result)    
+
+if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        print("使い方: python video_rece_analysis.py <動画ファイルパス>")
+        print("例: python video_rece_analysis.py race.mp4")
+        sys.exit(1)
+
+    video_path = sys.argv[1]
+    scale_m_per_px = calibrate_video(video_path)
+    print(f"Scale: {scale_m_per_px:.5f} m/px")
+
+    hand_positions = track_pose(video_path)
+    hand_x = [p[0] for p in hand_positions]
+    hand_y = [p[1] for p in hand_positions]
+    timestamps = list(range(len(hand_positions)))  # フレーム番号をタイムスタンプとして使用
+
+    result = analyze_stroke(timestamps, hand_x, hand_y, scale_m_per_px=scale_m_per_px)
+    plot_strokes(timestamps, hand_y, result["stroke_indices"], result)
