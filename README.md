@@ -1,43 +1,41 @@
 # video_race_analysis
 
-Computer vision-based swimming race analysis tool for extracting stroke metrics from fixed-camera video recordings.
+Computer-vision demo for extracting swimming-related movement timing from fixed-camera video.
 
-## Overview
+## What this project demonstrates
 
-This tool uses OpenCV and MediaPipe Pose Estimation to automatically track swimmer hand positions in race video, then calculates stroke rate, stroke length, and swimming velocity. It is designed for researchers analyzing technique from poolside camera footage.
+- OpenCV-based video calibration
+- MediaPipe pose estimation
+- Conversion of normalized landmarks to pixel coordinates
+- Time-accurate tracking using the video frame rate
+- Peak detection for repeated wrist-movement cycles
+- Visual quality control of detected cycles
 
-## Features
+## Important scope note
 
-- **Video Calibration**: Interactive 4-point calibration to establish pixel-to-meter scale for the pool.
-- **Pose Tracking**: Automatic wrist position tracking using MediaPipe Pose.
-- **Stroke Detection**: Signal processing (peak detection via SciPy) to identify stroke entry points.
-- **Metric Calculation**: Computes stroke rate (strokes/min), stroke length (m), cycle time (s), and average velocity (m/s).
-
-## Requirements
-
-- Python 3.8+
-- OpenCV
-- MediaPipe
-- NumPy
-- Matplotlib
-- SciPy
+The horizontal wrist-displacement value is an exploratory trajectory metric. It should not be interpreted as a validated estimate of whole-body swimming stroke length without additional kinematic validation.
 
 ## Setup
 
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
+    python3 -m venv .venv
+    source .venv/bin/activate
+    pip install -r requirements.txt
 
 ## Usage
 
-```bash
-python video_rece_analysis.py <video_file_path>
-# Example:
-python video_rece_analysis.py race_50m_free.mp4
-```
+    python video_rece_analysis.py race_50m_free.mp4 25
+
+The optional second argument is the real-world distance, in metres, between the two calibration points clicked in the first video frame. It defaults to 25 m.
+
+## Workflow
+
+1. Click two image points with a known real-world separation.
+2. Track the right wrist with MediaPipe in pixel coordinates.
+3. Preserve actual video timestamps from the frame rate.
+4. Detect repeated wrist-position cycles.
+5. Save a diagnostic trajectory figure.
 
 ## Output
 
-- `stroke_analysis.png`: Plot of hand Y-position over time with detected stroke entry points marked.
+- stroke_analysis.png: right-wrist trajectory with detected cycle locations
+- Console output: cycle rate, mean cycle duration, and an exploratory horizontal wrist-displacement metric
